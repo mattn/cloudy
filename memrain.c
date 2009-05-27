@@ -28,6 +28,15 @@
 #include <pthread.h>
 #include "cloudy/memcache.h"
 
+#ifdef _WIN32
+int
+inet_aton(const char *cp, struct in_addr *addr)
+{
+	addr->s_addr = inet_addr(cp);
+	return (addr->s_addr == INADDR_NONE) ? 0 : 1;
+}
+#endif
+
 extern char* optarg;
 extern int optint, opterr, optopt;
 const char* g_progname;
@@ -386,7 +395,12 @@ int main(int argc, char* argv[])
 
 	parse_argv(argc, argv);	
 
+	WSADATA wsaData;
+	WSAStartup(MAKEWORD(2, 2), &wsaData);
+
+#ifdef SIGPIPE
 	signal(SIGPIPE, SIG_IGN);
+#endif
 
 	pthread_mutex_init(&g_count_lock, NULL);
 	pthread_cond_init(&g_count_cond, NULL);

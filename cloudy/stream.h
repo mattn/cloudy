@@ -21,6 +21,9 @@
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,6 +67,8 @@ bool cloudy_stream_expand_buffer(cloudy_stream* stream,
 #define CLOUDY_STREAM_INIT_COUNT(b) \
 	do { *(volatile CLOUDY_STREAM_COUNTER_TYPE*)(b) = 1; } while(0)
 
+#ifndef _WIN32
+
 #define CLOUDY_STREAM_INCR_COUNT(b) \
 	do { __sync_add_and_fetch((CLOUDY_STREAM_COUNTER_TYPE*)(b), 1); } while(0)
 
@@ -73,6 +78,13 @@ bool cloudy_stream_expand_buffer(cloudy_stream* stream,
 			free(b); \
 		} \
 	} while(0)
+
+#else
+
+#define CLOUDY_STREAM_INCR_COUNT(b) InterlockedIncrement((long*)b);
+#define CLOUDY_STREAM_DECR_COUNT(b) InterlockedDecrement((long*)b);
+
+#endif
 
 bool cloudy_stream_init(cloudy_stream* stream, size_t init_size)
 {

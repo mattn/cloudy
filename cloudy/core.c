@@ -21,9 +21,28 @@
 #include "cloudy/cbtable.h"
 #include <fcntl.h>
 
+#ifndef _WIN32
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#else
+#include <stdio.h>
+#include <ws2tcpip.h>
+struct iovec
+{
+	u_long iov_len;
+	char FAR *iov_base;
+};
+
+static ssize_t
+writev(SOCKET fd, const struct iovec *iov, int iovcnt)
+{
+	DWORD count;
+	int res;
+	res = WSASend(fd, (LPWSABUF) iov, iovcnt, &count, 0, NULL, NULL);
+	return (res == 0 ? count : -1);
+}
+#endif
 
 #ifndef CLOUDY_RECV_INIT_SIZE
 #define CLOUDY_RECV_INIT_SIZE 1024*8
@@ -80,10 +99,20 @@ static bool connect_server(cloudy* ctx)
 	setsockopt(fd, SOL_SOCKET, SO_LINGER, (void *)&opt, sizeof(opt));  // FIXME ignore error?
 
 
+#ifndef _WIN32
 	if(fcntl(fd, F_SETFL, O_NONBLOCK) < 0) {
 		close(fd);
 		return false;
 	}
+#else
+	{
+		u_long flags = 1;
+		if(ioctlsocket(fd, FIONBIO, &flags) < 0) {
+			close(fd);
+			return false;
+		}
+	}
+#endif
 
 	return true;
 }
@@ -213,10 +242,20 @@ bool cloudy_send_request_flush(cloudy* ctx)
 		}
 	}
 
+#ifndef _WIN32
 	if(fcntl(ctx->fd, F_SETFL, 0) < 0) {
 		error_close(ctx, CLOUDY_RES_IO_ERROR);
 		return false;
 	}
+#else
+	{
+		u_long flags = 0;
+		if(ioctlsocket(ctx->fd, FIONBIO, &flags) < 0) {
+			error_close(ctx, CLOUDY_RES_IO_ERROR);
+			return false;
+		}
+	}
+#endif
 
 	char* p = wbuf->data;
 	char* const pend = p + wbuf->size;
@@ -236,10 +275,20 @@ bool cloudy_send_request_flush(cloudy* ctx)
 
 	wbuf->size = 0;
 
+#ifndef _WIN32
 	if(fcntl(ctx->fd, F_SETFL, O_NONBLOCK) < 0) {
 		error_close(ctx, CLOUDY_RES_IO_ERROR);
 		return false;
 	}
+#else
+	{
+		u_long flags = 1;
+		if(ioctlsocket(ctx->fd, FIONBIO, &flags) < 0) {
+			error_close(ctx, CLOUDY_RES_IO_ERROR);
+			return false;
+		}
+	}
+#endif
 
 	return true;
 }
