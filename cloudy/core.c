@@ -25,6 +25,9 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
+#define cloudy_write(fd, p, s) write(fd, p, s);
+#define cloudy_read(fd, p, s) read(fd, p, s);
+#define cloudy_writev(fd, iov, c) writev(fd, iov, c)
 #else
 #include <stdio.h>
 #include <ws2tcpip.h>
@@ -35,13 +38,34 @@ struct iovec
 };
 
 static ssize_t
-writev(SOCKET fd, const struct iovec *iov, int iovcnt)
+cloudy_writev(SOCKET fd, const struct iovec *iov, int iovcnt)
 {
 	DWORD count;
 	int res;
 	res = WSASend(fd, (LPWSABUF) iov, iovcnt, &count, 0, NULL, NULL);
 	return (res == 0 ? count : -1);
 }
+
+int cloudy_read(int fd, void* data, unsigned int len)
+{
+	int ret = recv(fd, data, len, 0);
+	if(WSAGetLastError() == WSAEWOULDBLOCK) {
+		WSASetLastError(EAGAIN);
+	}
+	return ret;
+}
+
+int cloudy_write(int fd, const void* data, unsigned int len)
+{
+	int ret = send(fd, data, len, 0);
+	if(WSAGetLastError() == WSAEWOULDBLOCK) {
+		WSASetLastError(EAGAIN);
+	}
+	return ret;
+}
+
+#undef errno
+#define errno WSAGetLastError()
 #endif
 
 #ifndef CLOUDY_RECV_INIT_SIZE
@@ -165,7 +189,7 @@ cloudy_data* cloudy_send_request_async(cloudy* ctx, cloudy_header* header,
 			++cnt;
 		}
 
-		ssize_t rl = writev(ctx->fd, iov, cnt);
+		ssize_t rl = cloudy_writev(ctx->fd, iov, cnt);
 		if(rl <= 0) {
 			if(errno == EAGAIN || errno == EINTR) {
 				goto append_all;
@@ -261,7 +285,7 @@ bool cloudy_send_request_flush(cloudy* ctx)
 	char* const pend = p + wbuf->size;
 
 	do {
-		ssize_t rl = write(ctx->fd, p, pend - p);
+		ssize_t rl = cloudy_write(ctx->fd, p, pend - p);
 		if(rl <= 0) {
 			if(errno == EAGAIN || errno == EINTR) {
 				continue;
@@ -308,7 +332,7 @@ static bool cloudy_send_request_try_flush(cloudy* ctx)
 		}
 	}
 
-	ssize_t rl = write(ctx->fd, wbuf->data, wbuf->size);
+	ssize_t rl = cloudy_write(ctx->fd, wbuf->data, wbuf->size);
 	if(rl <= 0) {
 		if(errno == EAGAIN || errno == EINTR) {
 			return true;
@@ -399,7 +423,7 @@ skip_wait:
 		return false;
 	}
 
-	rl = read(fd,
+	rl = cloudy_read(fd,
 			cloudy_stream_buffer(stream) + ctx->received,
 			cloudy_stream_buffer_capacity(stream) - ctx->received);
 	if(rl <= 0) {
